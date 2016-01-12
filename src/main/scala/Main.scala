@@ -5,7 +5,7 @@ import org.joda.time.format.DateTimeFormat
 object Main {
 
   val fmt = DateTimeFormat.forPattern("yyyyMMdd");
-  val startDate: DateTime = fmt.parseDateTime("20160401")
+  val startDate: DateTime = fmt.parseDateTime("20160101")
 
   def readInput(file: File): Set[Destination] = {
    Set(
