@@ -78,11 +78,11 @@ object Main {
     // -------------------------------------------------------------
     val conf = new Configuration("", "") {
       val bestChromsSelector =
-        new BestChromosomesSelector(this, 0.90d);
-      bestChromsSelector.setDoubletteChromosomesAllowed(false);
+        new BestChromosomesSelector(this, 1.0d);
+      //bestChromsSelector.setDoubletteChromosomesAllowed(false);
       this.addNaturalSelector(bestChromsSelector, true);
       this.setRandomGenerator(new StockRandomGenerator());
-      this.setMinimumPopSizePercent(100);
+      this.setMinimumPopSizePercent(0);
       this.setEventManager(new EventManager());
       this.setFitnessEvaluator(new DefaultFitnessEvaluator());
       this.setChromosomePool(new ChromosomePool());
