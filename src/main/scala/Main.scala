@@ -47,20 +47,46 @@ object Main {
         Location(-6F, 35F),
         Set(8, 9, 10),
         30
+      ),
+      Destination(
+        "China - East Coast",
+        Location(31.14F, 121.30F),
+        Set(10, 11),
+        14
+      ),
+      Destination(
+        "China - Hong Kong + South",
+        Location(22.22F, 114.05F),
+        Set(10, 11, 12),
+        14
+      ),
+      Destination(
+        "South Africa",
+        Location(-31.0F, 23.0F),
+        Set(5, 6, 7, 8, 9),
+        30
+      ),
+      Destination(
+        "France",
+        Location(46F, 3F),
+        Set(4, 5, 9),
+        7
+      ),
+      Destination(
+        "Germany",
+        Location(51F, 10F),
+        Set(5, 6, 7),
+        7
       )
     )
     (Range(0, places.size)).zip(places).toMap
   }
 
-  def solve(destinations: Map[Int, Destination]): Genotype = {
+  def solve(destinations: Map[Int, Destination], generations: Int = 1000): Genotype = {
 
     Configuration.reset()
     val fitnessFunction = { solution: Seq[Destination] =>
-      val locations = solution.map(_.location)
-      val (totalDistance, _) = locations.tail.foldLeft((0.0, locations.head)) { (distanceAndPrevLoc, nextLocation) =>
-        val (distance, prevLoc) = distanceAndPrevLoc
-        (distance + (prevLoc.distance(nextLocation)), nextLocation)
-      }
+      val totalDistance = Destination.totalDistance(solution)
       val visitingTimes = solution.foldLeft(startDate, Seq.empty[Interval]) { (soFar, dest) =>
         val (dateSoFar, intervals) = soFar
         val endDate = dateSoFar.plusDays(dest.duration)
@@ -70,7 +96,7 @@ object Main {
         5
       }
       //println(s"Finding fitness of solution $solution with total distance $totalDistance")
-      1 / totalDistance
+      1.0 / Math.sqrt(totalDistance)
     }
 
     // Start with a DefaultConfiguration, which comes setup with the
@@ -79,7 +105,7 @@ object Main {
     val conf = new Configuration("", "") {
       val bestChromsSelector =
         new BestChromosomesSelector(this, 1.0d);
-      //bestChromsSelector.setDoubletteChromosomesAllowed(false);
+      bestChromsSelector.setDoubletteChromosomesAllowed(false);
       this.addNaturalSelector(bestChromsSelector, true);
       this.setRandomGenerator(new StockRandomGenerator());
       this.setMinimumPopSizePercent(0);
@@ -88,7 +114,14 @@ object Main {
       this.setChromosomePool(new ChromosomePool());
       // These are different:
       // --------------------
-      //thiss.addGeneticOperator(new GreedyCrossover(config));
+      this.addGeneticOperator(new GreedyCrossover(this) {
+        override def distance(a_from: Object, a_to: Object): Double =  {
+          val from: Destination = destinations(a_from.asInstanceOf[IntegerGene].intValue());
+          val to: Destination = destinations(a_to.asInstanceOf[IntegerGene].intValue());
+          from.location.distance(to.location)
+        }
+
+      });
       this.addGeneticOperator(new SwappingMutationOperator(this, 20));
     }
 
@@ -156,25 +189,22 @@ object Main {
 
     val population = new Genotype(conf, new Population(conf, chromosomes))
 
-    for(i <- Range(1, 1000)) {
+    for(i <- Range(1, generations)) {
       population.evolve()
     }
 
     population
   }
 
-  def chromoToDestinations(destinations: Map[Int,Destination], chromo: IChromosome): Seq[Destination] = {
-    chromo.getGenes.map { case x: IntegerGene =>  destinations(x.intValue())}
-  }
-
   def mostFitAndLeastFit(population: Genotype, destinations: Map[Int, Destination]) = {
+    import Destination._
     val fittestChromosome = population.getFittestChromosome
     val leastFit: IChromosome = population.getFittestChromosomes(populationSize).last.asInstanceOf[IChromosome]
 
-    println(s"distance of fittest: ${1.0 / fittestChromosome.getFitnessValue}," +
+    println(s"distance of fittest: ${totalDistance(chromoToDestinations(destinations, fittestChromosome))}}," +
       s" solution is: ${chromoToDestinations(destinations, fittestChromosome).map(_.name)}")
 
-    println(s"distance of lest fit: ${1.0 / leastFit.getFitnessValue}," +
+    println(s"distance of lest fit: ${totalDistance(chromoToDestinations(destinations, leastFit))}}," +
       s" solution is: ${chromoToDestinations(destinations, leastFit).map(_.name)}")
 
   }
@@ -182,6 +212,20 @@ object Main {
 
 case class Destination(name: String, location: Location, bestTime: Set[Int], duration: Int) {
 
+}
+
+object Destination {
+  def totalDistance(destinations: Seq[Destination]) = {
+    val locations = destinations.map(_.location)
+    val (totalDistance, _) = locations.tail.foldLeft((0.0, locations.head)) { (distanceAndPrevLoc, nextLocation) =>
+        val (distance, prevLoc) = distanceAndPrevLoc
+        (distance + (prevLoc.distance(nextLocation)), nextLocation)
+    }
+    totalDistance
+  }
+  def chromoToDestinations(destinations: Map[Int,Destination], chromo: IChromosome): Seq[Destination] = {
+    chromo.getGenes.map { case x: IntegerGene =>  destinations(x.intValue())}
+  }
 }
 
 case class Location(latitude: Float, longitude: Float) {
