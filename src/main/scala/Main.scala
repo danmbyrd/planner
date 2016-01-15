@@ -12,81 +12,17 @@ import scala.collection.JavaConversions._
 
 object Main {
 
-  val distanceWeight = 1.0
-  val timingWeight = 2.0
+  val distanceWeight = 175.0
+  val timingWeight = 1.0
   val populationSize = 500
   val prettyFmt = DateTimeFormat.forPattern("dd 'of' MMMM")
   val monthTime = DateTimeFormat.forPattern("MM").withDefaultYear(2016)
-  val fmt = DateTimeFormat.forPattern("yyyyMMdd");
-  val startDate: DateTime = fmt.parseDateTime("20160401")
+  val fmt = DateTimeFormat.forPattern("yyyy-MM-dd");
+  val startDate: DateTime = fmt.parseDateTime("2016-04-01")
 
-  def readInput(file: File): Map[Int, Destination] = {
-    val places = Set(
-      Destination(
-        "Japan",
-        Location(35.42F, 139.45F),
-        Set(4, 11),
-        14
-      ),
-      Destination(
-        "New Zealand",
-        Location(-36.55F, 174.46F),
-        Set(2, 3),
-        30
-      ),
-      Destination(
-        "Australia",
-        Location(-25.0F, 151.0F),
-        Set(9, 10),
-        30
-      ),
-      Destination(
-        "Thailand",
-        Location(16F, 101F),
-        Set(11, 12, 1, 2),
-        30
-      ),
-      Destination(
-        "Tanzania",
-        Location(-6F, 35F),
-        Set(8, 9, 10),
-        30
-      ),
-      Destination(
-        "China - East Coast",
-        Location(31.14F, 121.30F),
-        Set(10, 11),
-        14
-      ),
-      Destination(
-        "China - Hong Kong + South",
-        Location(22.22F, 114.05F),
-        Set(10, 11, 12),
-        14
-      ),
-      Destination(
-        "South Africa",
-        Location(-31.0F, 23.0F),
-        Set(5, 6, 7, 8, 9),
-        30
-      ),
-      Destination(
-        "France",
-        Location(46F, 3F),
-        Set(4, 5, 9),
-        7
-      ),
-      Destination(
-        "Germany",
-        Location(51F, 10F),
-        Set(5, 6, 7),
-        7
-      )
-    )
-    (Range(0, places.size)).zip(places).toMap
-  }
+  def readInput(file: File): Map[Int, Destination] = Destinations.dests
 
-  def fitnessFunction(destinations: Map[Int, Destination]) = { solution: Seq[Destination] =>
+  def splitFitnessFunction(destinations: Map[Int, Destination]) = { solution: Seq[Destination] =>
 
       val totalDistance = Destination.totalDistance(solution)
 
@@ -99,7 +35,17 @@ object Main {
         destination.timingScore(interval)
       }.sum) / destinations.size
 
-    (distanceWeight * distanceScore) + (visitingScore * timingWeight)
+    (distanceScore ,visitingScore)
+  }
+
+  def fitnessFunction(destinations: Map[Int, Destination]) = { solution: Seq[Destination] =>
+    val (distanceScore, timingScore) = splitFitnessFunction(destinations)(solution)
+    val schengenFailure = Destination.schengenFailure(solution)
+    if (schengenFailure) {
+      0.0
+    } else {
+      (distanceWeight * distanceScore) + (timingWeight * timingScore)
+    }
   }
 
   def solve(destinations: Map[Int, Destination], generations: Int = 1000): Genotype = {
@@ -218,8 +164,13 @@ object Main {
        val (sol, int) = s
        s"${sol.name} - timing score: ${sol.timingScore(int)} (interval: ${intervalToString(int)})\n"
      }
+
+     val (distanceScore, timingScore) = splitFitnessFunction(destinations)(solution)
+     val totalDays = Destination.totalDays(solution)
      println(s"distance of solution: ${totalDistance(solution)}}," +
-      s" solution is: ${solutionAsString}")
+      s" solution is: ${solutionAsString}.\n" +
+       s"Fitness score for distance is: ${distanceScore} and for timing is: ${timingScore}\n" +
+       s"Total days = ${totalDays}")
 
     }
 
@@ -229,13 +180,45 @@ object Main {
   }
 }
 
-case class Destination(name: String, location: Location, timingScoreF: Interval => Double, duration: Int) {
+case class Destination(name: String, location: Location, timingScoreF: Interval => Double, duration: Int, schengen: Boolean) {
   def timingScore(interval: Interval) = timingScoreF(interval)
 }
 
 object Destination {
-  def apply(name: String, location: Location, bestMonths: Set[Int], duration: Int): Destination = {
-    Destination(name, location, LinearScoring(bestMonths), duration)
+
+  def schengenFailure(destinations: Seq[Destination]) = {
+    val days: Seq[Int] = Destination.visitingIntervals(
+      destinations, Main.startDate).zip(destinations).flatMap { intervalAndDest =>
+      val (interval, dest) = intervalAndDest
+      val days = interval.toDuration.getStandardDays
+      (1 to days.toInt).map { _ => if (dest.schengen) { 1 } else { 0 } }
+    }
+    var begin = 0
+    var end = 180
+    var windowContents = days.slice(begin, end).sum
+    while(end < (days.size - 1) && windowContents < 90) {
+      end = end + 1
+      windowContents = windowContents - days(begin)
+      begin = begin + 1
+      windowContents = windowContents + days(end)
+    }
+    if (windowContents >= 90) {
+      true
+    } else {
+      false
+    }
+  }
+
+  def totalDays(destinations: Seq[Destination]) = destinations.foldLeft(0) { (soFar, dest) =>
+    (soFar + dest.duration)
+  }
+
+  def apply(name: String, location: Location, bestMonths: Set[Int], duration: Int, schengen: Boolean): Destination = {
+    Destination(name, location, LinearScoring(bestMonths), duration, schengen)
+  }
+  def apply(name: String, location: Location, mustVisit: (String, String), duration: Int, schengen: Boolean): Destination = {
+    val interval = new Interval(Main.fmt.parseDateTime(mustVisit._1), Main.fmt.parseDateTime(mustVisit._2))
+    Destination(name, location, StrictScoring(interval), duration, schengen)
   }
   def totalDistance(destinations: Seq[Destination]) = {
     val locations = destinations.map(_.location)
@@ -246,7 +229,7 @@ object Destination {
     totalDistance
   }
 
-  def visitingIntervals(destinations: Seq[Destination], startDate: DateTime = Main.startDate) = {
+  def visitingIntervals(destinations: Seq[Destination], startDate: DateTime = Main.startDate): Seq[Interval] = {
     destinations.foldLeft(startDate, Seq.empty[Interval]) { (soFar, dest) =>
       val (dateSoFar, intervals) = soFar
       val endDate = dateSoFar.plusDays(dest.duration)
@@ -289,19 +272,6 @@ case class LinearScoring(bestMonths: Set[Int]) extends Function[Interval, Double
     (12 - distances.min) / 12.0
   }
 
-  /*val bestMonthsIntervals = bestMonths.map { month =>
-      val endDate = (month % 12) + 1
-      val endDateWithYear = if (endDate == 1) {
-        Main.fmt.parseDateTime("20170101")
-      } else {
-        Main.monthTime.parseDateTime(endDate.toString)
-      }
-      new Interval(
-        Main.monthTime.parseDateTime(month.toString),
-        endDateWithYear
-      )
-    }*/
-
   override def apply(interval: Interval): Double = {
 
     val daysOfEachMonth = {
@@ -317,13 +287,15 @@ case class LinearScoring(bestMonths: Set[Int]) extends Function[Interval, Double
 
     val scoreUnnormal = daysOfEachMonth.map { day => scoreDay(day)}.sum
     Math.pow(scoreUnnormal / daysOfEachMonth.size.toDouble, 2)
-    /*val overlaps = bestMonthsIntervals.map { bestTime => interval.overlap(bestTime)}
-    val overlappingDays = overlaps.filter { o => Option(o).isDefined }.map { _.toDuration.getStandardDays }.sum
-    if (overlappingDays == 0.0) {
-      0.0
-    } else {
-      overlappingDays.toDouble / interval.toDuration.getStandardDays.toDouble
-    } */
+  }
+}
+
+case class StrictScoring(timeToVisit: Interval) extends Function[Interval, Double] {
+
+  override def apply(interval: Interval): Double = {
+
+    val overlappingDays = Option(interval.overlap(timeToVisit)).map(_.toDuration.getStandardDays).getOrElse(0L).toDouble
+    Math.sqrt(overlappingDays.toDouble / interval.toDuration.getStandardDays.toDouble)
 
   }
 }
